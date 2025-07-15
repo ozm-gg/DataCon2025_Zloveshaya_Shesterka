@@ -19,6 +19,7 @@ import numpy as np
 import hyp
 import sys
 import os
+import torch
 
 sys.path.append(os.path.join(RDConfig.RDContribDir, "SA_Score"))
 import sascorer
@@ -164,6 +165,64 @@ class ReplayBuffer:
             obs_tp1.append(smp[3]) 
             done.append(smp[4])
         return np.array(obs), np.array(act), np.array(rew), obs_tp1, np.array(done)
+    
+    def __len__(self):
+        return len(self.buffer)
+        
+class PrioritizedReplayBuffer:
+    """Prioritized Experience Replay Buffer"""
+    def __init__(self, capacity, alpha=0.6, beta=0.4, beta_increment=0.001):
+        self.capacity = capacity
+        self.alpha = alpha
+        self.beta = beta
+        self.beta_increment = beta_increment
+        self.buffer = []
+        self.priorities = np.zeros(capacity)
+        self.pos = 0
+        self.max_priority = 1.0
+        self.n_step_buffer = deque(maxlen=3)  # For n-step learning (n=3)
+    
+    def add(self, experience, n_step=3, gamma=0.99):
+        """Add experience with n-step learning"""
+        self.n_step_buffer.append(experience)
+        
+        if len(self.n_step_buffer) == n_step:
+            state, action, _, _, _ = self.n_step_buffer[0]
+            _, _, reward, next_state, done = self.n_step_buffer[-1]
+            
+            # Calculate n-step reward
+            for i in range(1, n_step-1):
+                r = self.n_step_buffer[i][2]
+                reward = r + gamma * reward
+            
+            # Store n-step transition
+            if len(self.buffer) < self.capacity:
+                self.buffer.append(None)
+            self.buffer[self.pos] = (state, action, reward, next_state, done)
+            self.priorities[self.pos] = self.max_priority
+            self.pos = (self.pos + 1) % self.capacity
+    
+    def sample(self, batch_size):
+        if len(self.buffer) == 0:
+            return [], [], []
+        
+        priorities = self.priorities[:len(self.buffer)]
+        probs = priorities ** self.alpha
+        probs /= probs.sum()
+        
+        indices = np.random.choice(len(self.buffer), batch_size, p=probs)
+        samples = [self.buffer[i] for i in indices]
+        
+        weights = (len(self.buffer) * probs[indices]) ** (-self.beta)
+        weights /= weights.max()
+        self.beta = min(1.0, self.beta + self.beta_increment)
+        
+        return samples, indices, torch.FloatTensor(weights)
+    
+    def update_priorities(self, indices, priorities):
+        for idx, priority in zip(indices, priorities):
+            self.priorities[idx] = priority
+            self.max_priority = max(self.max_priority, priority)
     
     def __len__(self):
         return len(self.buffer)

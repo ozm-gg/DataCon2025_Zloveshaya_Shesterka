@@ -27,6 +27,7 @@ from __future__ import print_function
 import collections
 import copy
 import itertools
+import numpy as np
 
 from rdkit import Chem
 from rdkit.Chem import Draw
@@ -319,7 +320,7 @@ class Molecule(object):
     def __init__(
         self,
         atom_types,
-        init_mol=None,
+        init_mols=None,
         allow_removal=True,
         allow_no_modification=True,
         allow_bonds_between_rings=True,
@@ -356,6 +357,8 @@ class Molecule(object):
         If None, it will not be used as a criterion.
       record_path: Boolean. Whether to record the steps internally.
     """
+        self.init_mols = init_mols
+        init_mol = str(np.random.choice(init_mols))
         if isinstance(init_mol, Chem.Mol):
             init_mol = Chem.MolToSmiles(init_mol)
         self.init_mol = init_mol
@@ -391,7 +394,8 @@ class Molecule(object):
 
     def initialize(self):
         """Resets the MDP to its initial state."""
-        self._state = self.init_mol
+        init_mol = str(np.random.choice(self.init_mols))
+        self._state = init_mol
         if self.record_path:
             self._path = [self._state]
         self._valid_actions = self.get_valid_actions(force_rebuild=True)
@@ -473,8 +477,6 @@ class Molecule(object):
         the action is not in the set of valid_actions.
 
     """
-        if self._counter >= self.max_steps or self._goal_reached():
-            raise ValueError("This episode is terminated.")
         if action not in self._valid_actions:
             raise ValueError("Invalid action.")
         self._state = action
